@@ -119,6 +119,7 @@ def test_forward_on_gpu(model, cfg_enc, device):
         n = 16
         mv_v_part = torch.randn(n, 3, device=device)
         mv_s_part = torch.zeros(n, 1, device=device)
+        
         scalars = torch.randn(n, cfg_enc["in_s_channels"], device=device)
         batch_idx = torch.zeros(n, dtype=torch.long, device=device)
 
@@ -149,7 +150,7 @@ def parse_args():
     parser.add_argument("--use_energy", action="store_true", help="Si se incluye la energía como parte de la entrada/salida (requiere modificar el modelo y los datos)")
     parser.add_argument("--z_norm", action="store_true", help="Si se aplica normalización z-score a las coordenadas espaciales y otras características usando estadísticas precomputadas")
     parser.add_argument("--test", action="store_true", help="Ejecuta un forward de prueba en GPU y dibuja la red")
-    parser.add_argument("--epochs", type=int, default=100, help="Número de épocas de entrenamiento")
+    parser.add_argument("--epochs", type=int, default=1, help="Número de épocas de entrenamiento")
     parser.add_argument("--batch_size", type=int, default=3, help="Tamaño de batch para entrenamiento y validación")
     parser.add_argument("--cfg", "-c", type=str, default="config/model_cfg.yml", help="Archivo YAML con la configuración del modelo")
     return parser.parse_args()
@@ -157,19 +158,6 @@ def parse_args():
 def main():
     args = parse_args()
     
-    data_paths = args.data_paths if args.data_paths else [
-        "/path/to/file1.npz",
-        "/path/to/file2.npz",
-    ]
-    val_ratio = args.val_ratio
-    mode = args.mode
-
-    train_dataset, val_dataset = make_pf_splits(
-        data_paths, val_ratio=val_ratio, mode=mode
-    )
-
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
     cfg_models = yaml.safe_load(open(args.cfg, "r"))
     cfg_enc = cfg_models["encoder"]
     cfg_dec = cfg_models["decoder"] 
@@ -187,6 +175,18 @@ def main():
     if args.test:
         test_forward_on_gpu(model, cfg_enc, device)
         return
+    data_paths = args.data_paths if args.data_paths else [
+        "../data/piones_npz/Pi_30GeV_714562_715747_716264_716308.npz",
+    ]
+    val_ratio = args.val_ratio
+    mode = args.mode
+    print(f"Cargando datos desde: {data_paths} con val_ratio={val_ratio} y mode={mode}")
+    train_dataset, val_dataset = make_pf_splits(
+        data_paths, val_ratio=val_ratio, mode=mode
+    )
+
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
 
     if wandb is not None:
         wandb.init(
@@ -222,8 +222,7 @@ def main():
             loss = reconstruction_loss(outputs, mv_v_part,
                                        mv_s_part, scalars,
                                        use_scalar=use_scalar,
-                                       use_one_hot=use_one_hot,
-                                       use_energy=use_energy)
+                                       )
 
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -251,8 +250,7 @@ def main():
                                            mv_s_part,
                                            scalars,
                                            use_scalar=use_scalar,
-                                           use_one_hot=use_one_hot,
-                                           use_energy=use_energy)
+                                           )
 
                 val_loss += loss.item()
 

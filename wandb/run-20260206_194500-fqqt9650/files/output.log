@@ -1,0 +1,12 @@
+Traceback (most recent call last):
+  File "src/train_autoencoder.py", line 322, in <module>
+    main()
+  File "src/train_autoencoder.py", line 222, in main
+    loss = reconstruction_loss(outputs, mv_v_part,
+TypeError: reconstruction_loss() got an unexpected keyword argument 'use_one_hot'
+Traceback (most recent call last):
+  File "src/train_autoencoder.py", line 322, in <module>
+    main()
+  File "src/train_autoencoder.py", line 222, in main
+    loss = reconstruction_loss(outputs, mv_v_part,
+TypeError: reconstruction_loss() got an unexpected keyword argument 'use_one_hot'

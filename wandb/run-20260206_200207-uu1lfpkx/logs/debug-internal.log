@@ -1,0 +1,15 @@
+{"time":"2026-02-06T20:02:08.361016965+01:00","level":"INFO","msg":"stream: starting","core version":"0.19.5","symlink path":"/home/oarquero/GATrEnv/GATrAutoencoder/wandb/run-20260206_200207-uu1lfpkx/logs/debug-core.log"}
+{"time":"2026-02-06T20:02:08.501791788+01:00","level":"INFO","msg":"created new stream","id":"uu1lfpkx"}
+{"time":"2026-02-06T20:02:08.5019489+01:00","level":"INFO","msg":"stream: started","id":"uu1lfpkx"}
+{"time":"2026-02-06T20:02:08.502058716+01:00","level":"INFO","msg":"writer: Do: started","stream_id":"uu1lfpkx"}
+{"time":"2026-02-06T20:02:08.502091968+01:00","level":"INFO","msg":"sender: started","stream_id":"uu1lfpkx"}
+{"time":"2026-02-06T20:02:08.502156376+01:00","level":"INFO","msg":"handler: started","stream_id":"uu1lfpkx"}
+{"time":"2026-02-06T20:02:09.127239157+01:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2026-02-06T20:11:17.319542783+01:00","level":"INFO","msg":"stream: closing","id":"uu1lfpkx"}
+{"time":"2026-02-06T20:11:17.319595165+01:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2026-02-06T20:11:17.320743619+01:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2026-02-06T20:11:18.29223132+01:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2026-02-06T20:11:18.618187113+01:00","level":"INFO","msg":"handler: closed","stream_id":"uu1lfpkx"}
+{"time":"2026-02-06T20:11:18.618216971+01:00","level":"INFO","msg":"writer: Close: closed","stream_id":"uu1lfpkx"}
+{"time":"2026-02-06T20:11:18.618255096+01:00","level":"INFO","msg":"sender: closed","stream_id":"uu1lfpkx"}
+{"time":"2026-02-06T20:11:18.618430802+01:00","level":"INFO","msg":"stream: closed","id":"uu1lfpkx"}

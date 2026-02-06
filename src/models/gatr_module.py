@@ -54,7 +54,7 @@ class GATrBasicModule(nn.Module):
         # mv_v_part: (N, 3) for points or (N, 3) for vectors
         # mv_s_part: (N, 1) for scalars (e.g., layer type)
         mv_vec = embed_point(mv_v_part) # (N,16)
-        mv_scalar = embed_point(mv_s_part) # (N, 16)
+        mv_scalar = embed_scalar(mv_s_part) # (N, 16)
 
         embedded_mv_vec = mv_vec.unsqueeze(1)   # (N,1,16)
         embedded_mv_scalar = mv_scalar.unsqueeze(1)   # (N,1,16)

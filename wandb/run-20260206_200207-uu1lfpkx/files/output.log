@@ -1,0 +1,72 @@
+Traceback (most recent call last):
+  File "src/train_autoencoder.py", line 320, in <module>
+    main()
+  File "src/train_autoencoder.py", line 214, in main
+    for batch in train_loader:
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/dataloader.py", line 631, in __next__
+    data = self._next_data()
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/dataloader.py", line 675, in _next_data
+    data = self._dataset_fetcher.fetch(index)  # may raise StopIteration
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/_utils/fetch.py", line 49, in fetch
+    data = self.dataset.__getitems__(possibly_batched_index)
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/dataset.py", line 399, in __getitems__
+    return [self.dataset[self.indices[idx]] for idx in indices]
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/dataset.py", line 399, in <listcomp>
+    return [self.dataset[self.indices[idx]] for idx in indices]
+  File "/usr/local/lib/python3.8/dist-packages/torch_geometric/data/dataset.py", line 291, in __getitem__
+    data = self.get(self.indices()[idx])
+  File "/home/oarquero/GATrEnv/GATrAutoencoder/src/datasets.py", line 120, in get
+    data = super().get(idx)
+  File "/home/oarquero/GATrEnv/GATrAutoencoder/src/datasets.py", line 74, in get
+    missing = [k for k in ("x", "y", "z", "i", "j", "k", "thr") if k not in npz]
+  File "/home/oarquero/GATrEnv/GATrAutoencoder/src/datasets.py", line 74, in <listcomp>
+    missing = [k for k in ("x", "y", "z", "i", "j", "k", "thr") if k not in npz]
+  File "/usr/lib/python3.8/_collections_abc.py", line 666, in __contains__
+    self[key]
+  File "/usr/local/lib/python3.8/dist-packages/numpy/lib/npyio.py", line 245, in __getitem__
+    return format.read_array(bytes,
+  File "/usr/local/lib/python3.8/dist-packages/numpy/lib/format.py", line 746, in read_array
+    array = pickle.load(fp, **pickle_kwargs)
+  File "/usr/lib/python3.8/zipfile.py", line 904, in peek
+    chunk = self.read(n)
+  File "/usr/lib/python3.8/zipfile.py", line 940, in read
+    data = self._read1(n)
+  File "/usr/lib/python3.8/zipfile.py", line 1004, in _read1
+    if self._compress_type == ZIP_DEFLATED:
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "src/train_autoencoder.py", line 320, in <module>
+    main()
+  File "src/train_autoencoder.py", line 214, in main
+    for batch in train_loader:
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/dataloader.py", line 631, in __next__
+    data = self._next_data()
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/dataloader.py", line 675, in _next_data
+    data = self._dataset_fetcher.fetch(index)  # may raise StopIteration
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/_utils/fetch.py", line 49, in fetch
+    data = self.dataset.__getitems__(possibly_batched_index)
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/dataset.py", line 399, in __getitems__
+    return [self.dataset[self.indices[idx]] for idx in indices]
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/dataset.py", line 399, in <listcomp>
+    return [self.dataset[self.indices[idx]] for idx in indices]
+  File "/usr/local/lib/python3.8/dist-packages/torch_geometric/data/dataset.py", line 291, in __getitem__
+    data = self.get(self.indices()[idx])
+  File "/home/oarquero/GATrEnv/GATrAutoencoder/src/datasets.py", line 120, in get
+    data = super().get(idx)
+  File "/home/oarquero/GATrEnv/GATrAutoencoder/src/datasets.py", line 74, in get
+    missing = [k for k in ("x", "y", "z", "i", "j", "k", "thr") if k not in npz]
+  File "/home/oarquero/GATrEnv/GATrAutoencoder/src/datasets.py", line 74, in <listcomp>
+    missing = [k for k in ("x", "y", "z", "i", "j", "k", "thr") if k not in npz]
+  File "/usr/lib/python3.8/_collections_abc.py", line 666, in __contains__
+    self[key]
+  File "/usr/local/lib/python3.8/dist-packages/numpy/lib/npyio.py", line 245, in __getitem__
+    return format.read_array(bytes,
+  File "/usr/local/lib/python3.8/dist-packages/numpy/lib/format.py", line 746, in read_array
+    array = pickle.load(fp, **pickle_kwargs)
+  File "/usr/lib/python3.8/zipfile.py", line 904, in peek
+    chunk = self.read(n)
+  File "/usr/lib/python3.8/zipfile.py", line 940, in read
+    data = self._read1(n)
+  File "/usr/lib/python3.8/zipfile.py", line 1004, in _read1
+    if self._compress_type == ZIP_DEFLATED:
+KeyboardInterrupt

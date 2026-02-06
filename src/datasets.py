@@ -80,6 +80,10 @@ class SDHCALDataset(Dataset):
         z = torch.as_tensor(self._get_event_array(npz["z"], local_idx))
         pos = torch.stack([x, y, z], dim=1).float()
 
+        x = x.unsqueeze(1)
+        y = y.unsqueeze(1)
+        z = z.unsqueeze(1)
+        
         i = torch.as_tensor(self._get_event_array(npz["i"], local_idx), dtype=torch.float32)
         j = torch.as_tensor(self._get_event_array(npz["j"], local_idx), dtype=torch.float32)
         k = torch.as_tensor(self._get_event_array(npz["k"], local_idx), dtype=torch.float32)
@@ -101,7 +105,7 @@ class SDHCALDataset(Dataset):
 
         energy = torch.tensor(energy_val, dtype=torch.float32)
 
-        return Data(pos=pos, thr=thr, thr1=thr1, thr2=thr2, thr3=thr3, i=i, j=j, k=k, energy=energy)
+        return Data(pos=pos, x =x, y=y, z=z, thr=thr, thr1=thr1, thr2=thr2, thr3=thr3, i=i, j=j, k=k, energy=energy)
 
 
 class HitsDataset(SDHCALDataset):

@@ -1,0 +1,16 @@
+Traceback (most recent call last):
+  File "src/train_autoencoder.py", line 323, in <module>
+    main()
+  File "src/train_autoencoder.py", line 216, in main
+    data = build_batch(batch, use_scalar=use_scalar, use_one_hot=use_one_hot, use_energy=use_energy, z_norm=args.z_norm)
+  File "src/train_autoencoder.py", line 43, in build_batch
+    N = batch.x.shape[0]
+AttributeError: 'NoneType' object has no attribute 'shape'
+Traceback (most recent call last):
+  File "src/train_autoencoder.py", line 323, in <module>
+    main()
+  File "src/train_autoencoder.py", line 216, in main
+    data = build_batch(batch, use_scalar=use_scalar, use_one_hot=use_one_hot, use_energy=use_energy, z_norm=args.z_norm)
+  File "src/train_autoencoder.py", line 43, in build_batch
+    N = batch.x.shape[0]
+AttributeError: 'NoneType' object has no attribute 'shape'

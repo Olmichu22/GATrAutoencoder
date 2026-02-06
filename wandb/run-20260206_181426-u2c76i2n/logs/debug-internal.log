@@ -1,0 +1,15 @@
+{"time":"2026-02-06T18:14:27.573101845+01:00","level":"INFO","msg":"stream: starting","core version":"0.19.5","symlink path":"/home/oarquero/GATrEnv/GATrAutoencoder/wandb/run-20260206_181426-u2c76i2n/logs/debug-core.log"}
+{"time":"2026-02-06T18:14:27.820913299+01:00","level":"INFO","msg":"created new stream","id":"u2c76i2n"}
+{"time":"2026-02-06T18:14:27.821015503+01:00","level":"INFO","msg":"stream: started","id":"u2c76i2n"}
+{"time":"2026-02-06T18:14:27.821215638+01:00","level":"INFO","msg":"handler: started","stream_id":"u2c76i2n"}
+{"time":"2026-02-06T18:14:27.824142578+01:00","level":"INFO","msg":"writer: Do: started","stream_id":"u2c76i2n"}
+{"time":"2026-02-06T18:14:27.82565955+01:00","level":"INFO","msg":"sender: started","stream_id":"u2c76i2n"}
+{"time":"2026-02-06T18:14:28.562830919+01:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2026-02-06T18:22:16.293282073+01:00","level":"INFO","msg":"stream: closing","id":"u2c76i2n"}
+{"time":"2026-02-06T18:22:16.293357039+01:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2026-02-06T18:22:16.294559156+01:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2026-02-06T18:22:16.964830056+01:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2026-02-06T18:22:17.231083818+01:00","level":"INFO","msg":"handler: closed","stream_id":"u2c76i2n"}
+{"time":"2026-02-06T18:22:17.231126801+01:00","level":"INFO","msg":"writer: Close: closed","stream_id":"u2c76i2n"}
+{"time":"2026-02-06T18:22:17.231142271+01:00","level":"INFO","msg":"sender: closed","stream_id":"u2c76i2n"}
+{"time":"2026-02-06T18:22:17.231218235+01:00","level":"INFO","msg":"stream: closed","id":"u2c76i2n"}
