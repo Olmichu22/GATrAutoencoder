@@ -1,128 +1,195 @@
+import random
+
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch_geometric.loader import DataLoader
 
+from datasets import make_pf_splits
 from models.gatr_autoencoder import GATrAutoencoder
 
+try:
+    import wandb
+except ImportError:  # pragma: no cover
+    wandb = None
 
-class HitsDataset(Dataset):
-    """
-    Expects a list of events.
-    Each event is a dict with:
-      - "xyz": (Ni, 3)
-      - "depth": (Ni, 1)
-      - "energy_onehot": (Ni, 3)
-    """
+try:
+    import matplotlib.pyplot as plt
+except ImportError:  # pragma: no cover
+    plt = None
+import yaml
+z_norm_yaml_path = "stats_z_norm.yaml"  # Ruta al archivo YAML con las estadísticas para normalización z-score
 
-    def __init__(self, events):
-        self.events = events
+def build_batch(batch, use_scalar=False, use_energy=False, use_one_hot=False, z_norm=False):
+        """
+        Convierte un Batch de PyG a los tensores que espera el modelo.
 
-    def __len__(self):
-        return len(self.events)
+        Asume que:
+            - batch.pos = (N, 3)
+            - batch.x = (N, 6) con [i, j, k, thr1, thr2, thr3]
+            - batch.batch = (N,) índices de evento
+        """
+        if z_norm:
+            with open(z_norm_yaml_path, "r") as f:
+                stats = yaml.safe_load(f)
+        # Posiciones                
+        mv_v_part = batch.pos
+        if z_norm:
+            # Aplicar normalización z-score a las coordenadas espaciales usando las estadísticas precomputadas
+            for i, coord in enumerate(["x", "y", "z"]):
+                mean = stats[coord]["mean"]
+                std = stats[coord]["std"]
+                mv_v_part[:, i] = (mv_v_part[:, i] - mean) / std
+                
+        N = batch.x.shape[0]
+        device = batch.x.device
+        
+        # Si se va a usar la profundidad
+        if use_scalar:
+          mv_s_part = batch.k
+          if z_norm and "k" in stats:
+              mean = stats["k"]["mean"]
+              std = stats["k"]["std"]
+              mv_s_part = (mv_s_part - mean) / std  
+        else:
+          mv_s_part = torch.zeros((N, 1), dtype=torch.float32).to(device) # Placeholder para la parte escalar (profundidad)
+        
+        # Si los thresholds son (1, 2, 3) o si se quiere usar one-hot encoding [thr1, thr2, thr3]
+        if use_one_hot:
+            scalars = torch.cat([batch.thr1, batch.thr2, batch.thr3], dim=1) # one-hot de thr1, thr2, thr3
+        else:
+            scalars = batch.thr
+            if z_norm and "thr" in stats:
+                mean = stats["thr"]["mean"]
+                std = stats["thr"]["std"]
+                scalars = (scalars - mean) / std
+        batch_idx = batch.batch
+        return {
+                "mv_v_part": mv_v_part,
+                "mv_s_part": mv_s_part,
+                "scalars": scalars,
+                "batch_idx": batch_idx,
+        }
 
-    def __getitem__(self, idx):
-        evt = self.events[idx]
-        xyz = torch.as_tensor(evt["xyz"], dtype=torch.float32)
-        depth = torch.as_tensor(evt["depth"], dtype=torch.float32)
-        energy_onehot = torch.as_tensor(evt["energy_onehot"], dtype=torch.float32)
-        return xyz, depth, energy_onehot
+
+def reconstruction_loss(outputs, mv_v_part, mv_s_part, scalars, use_scalar=False):
+        point_rec = outputs["point_rec"]
+        scalar_rec = outputs["scalar_rec"]
+        s_rec = outputs["s_rec"]
+
+        loss_xyz = nn.functional.mse_loss(point_rec, mv_v_part)
+        if use_scalar:
+            loss_depth = nn.functional.mse_loss(scalar_rec, mv_s_part)
+        else:
+            loss_depth = 0.0
+        
+        scalar_loss = nn.functional.mse_loss(s_rec, scalars)
+
+        return loss_xyz + loss_depth + scalar_loss
 
 
-def collate_hits(batch):
-    """
-    Flattens variable-length events into a single batch with a `batch` index.
-    Returns:
-      - mv_v_part: (N, 3)
-      - mv_s_part: (N, 1)
-      - scalars: (N, 3) one-hot energy threshold
-      - batch_idx: (N,)
-    """
-    xyz_list, depth_list, energy_list, batch_idx_list = [], [], [], []
-    for i, (xyz, depth, energy_onehot) in enumerate(batch):
-        n = xyz.shape[0]
-        xyz_list.append(xyz)
-        depth_list.append(depth)
-        energy_list.append(energy_onehot)
-        batch_idx_list.append(torch.full((n,), i, dtype=torch.long))
+def _plot_event_projections(xyz, xyz_rec):
+        if plt is None:
+            return None
+        fig, axes = plt.subplots(1, 2, figsize=(8, 4))
+        axes[0].scatter(xyz[:, 0], xyz[:, 2], s=3, alpha=0.6, label="orig")
+        axes[0].scatter(xyz_rec[:, 0], xyz_rec[:, 2], s=3, alpha=0.6, label="rec")
+        axes[0].set_title("XZ")
+        axes[0].set_xlabel("x")
+        axes[0].set_ylabel("z")
+        axes[0].legend()
 
-    mv_v_part = torch.cat(xyz_list, dim=0)
-    mv_s_part = torch.cat(depth_list, dim=0)
-    scalars = torch.cat(energy_list, dim=0)
-    batch_idx = torch.cat(batch_idx_list, dim=0)
+        axes[1].scatter(xyz[:, 1], xyz[:, 2], s=3, alpha=0.6, label="orig")
+        axes[1].scatter(xyz_rec[:, 1], xyz_rec[:, 2], s=3, alpha=0.6, label="rec")
+        axes[1].set_title("YZ")
+        axes[1].set_xlabel("y")
+        axes[1].set_ylabel("z")
+        axes[1].legend()
 
-    return mv_v_part, mv_s_part, scalars, batch_idx
+        fig.tight_layout()
+        return fig
 
+def parse_args():
+    import argparse
 
-def reconstruction_loss(outputs, mv_v_part, mv_s_part, scalars):
-    """
-    Simple MSE losses for coordinates, depth, and energy one-hot.
-    """
-    point_rec = outputs["point_rec"]
-    scalar_rec = outputs["scalar_rec"]
-    s_rec = outputs["s_rec"]
-
-    loss_xyz = nn.functional.mse_loss(point_rec, mv_v_part)
-    loss_depth = nn.functional.mse_loss(scalar_rec, mv_s_part)
-    loss_energy = nn.functional.mse_loss(s_rec, scalars)
-
-    return loss_xyz + loss_depth + loss_energy
-
+    parser = argparse.ArgumentParser(description="Entrena un autoencoder con GATr para datos de SDHCAL.")
+    parser.add_argument("--data_paths", nargs="+", help="Lista de archivos .npz para entrenamiento/validación")
+    parser.add_argument("--val_ratio", type=float, default=0.2, help="Fracción de datos para validación")
+    parser.add_argument("--mode", choices=["memory", "lazy"], default="lazy", help="Modo de carga de datos")
+    parser.add_argument("--use_scalar", action="store_true", help="Si se incluye la coordenada escalar (profundidad) en el modelo")
+    parser.add_argument("--use_one_hot", action="store_true", help="Si se usa one-hot encoding para las clases de thr en lugar de un solo valor escalar")
+    parser.add_argument("--use_energy", action="store_true", help="Si se incluye la energía como parte de la entrada/salida (requiere modificar el modelo y los datos)")
+    parser.add_argument("--z_norm", action="store_true", help="Si se aplica normalización z-score a las coordenadas espaciales y otras características usando estadísticas precomputadas")
+    parser.add_argument("--epochs", type=int, default=100, help="Número de épocas de entrenamiento")
+    parser.add_argument("--batch_size", type=int, default=3, help="Tamaño de batch para entrenamiento y validación")
+    parser.add_argument("--cfg", "-c", type=str, default="model_cfg.yml", help="Archivo YAML con la configuración del modelo")
+    return parser.parse_args()
 
 def main():
-    # TODO: Replace with real data loading
-    dummy_events = [
-        {
-            "xyz": torch.randn(128, 3),
-            "depth": torch.randn(128, 1),
-            "energy_onehot": nn.functional.one_hot(
-                torch.randint(0, 3, (128,)), num_classes=3
-            ).float(),
-        }
-        for _ in range(10)
+    args = parse_args()
+    
+    data_paths = args.data_paths if args.data_paths else [
+        "/path/to/file1.npz",
+        "/path/to/file2.npz",
     ]
+    val_ratio = args.val_ratio
+    mode = args.mode
 
-    dataset = HitsDataset(dummy_events)
-    dataloader = DataLoader(dataset, batch_size=2, shuffle=True, collate_fn=collate_hits)
+    train_dataset, val_dataset = make_pf_splits(
+        data_paths, val_ratio=val_ratio, mode=mode
+    )
 
-    cfg_enc = {
-        "hidden_mv_channels": 32,
-        "hidden_s_channels": 64,
-        "num_blocks": 2,
-        "in_s_channels": 3,
-        "in_mv_channels": 1,
-        "out_mv_channels": 1,
-        "dropout": 0.1,
-        "out_s_channels": 16,
-    }
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
+    cfg_models = yaml.safe_load(open(args.cfg, "r"))
+    cfg_enc = cfg_models["encoder"]
+    cfg_dec = cfg_models["decoder"] 
+    cfg_agg = cfg_models["aggregation"]
 
-    cfg_dec = {
-        "hidden_mv_channels": 32,
-        "hidden_s_channels": 64,
-        "num_blocks": 2,
-        "in_s_channels": 3,
-        "in_mv_channels": 1,
-        "out_mv_channels": 1,
-        "dropout": 0.1,
-        "out_s_channels": 16,
-    }
+    # Ensure output dec is compatible with encoder output for reconstruction
+    if cfg_dec["out_s_channels"] != cfg_enc["in_s_channels"]:
+        print(f"Warning: Adjusting decoder out_s_channels from {cfg_dec['out_s_channels']} to match encoder in_s_channels {cfg_enc['in_s_channels']} for reconstruction.")
+        cfg_dec["out_s_channels"] = cfg_enc["in_s_channels"]
 
-    model = GATrAutoencoder(cfg_enc=cfg_enc, cfg_dec=cfg_dec, latent_s_channels=8)
+    model = GATrAutoencoder(cfg_enc=cfg_enc, cfg_agg=cfg_agg, cfg_dec=cfg_dec, latent_s_channels=2)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    if wandb is not None:
+        wandb.init(
+            project="gatr-autoencoder",
+            config={
+                "cfg_enc": cfg_enc,
+                "cfg_dec": cfg_dec,
+                "cfg_agg": cfg_agg,
+                "latent_s_channels": 2,
+                "batch_size": args.batch_size,
+                "val_ratio": val_ratio,
+                "mode": mode,
+            },
+        )
+        wandb.watch(model, log="all", log_freq=100)
+        wandb.log({"model/params": sum(p.numel() for p in model.parameters())})
 
-    model.train()
-    for epoch in range(5):
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    use_scalar = args.use_scalar  # Si queremos que el modelo intente reconstruir la coordenada escalar (profundidad)
+    use_one_hot = args.use_one_hot # Si queremos usar one-hot encoding para las clases de thr en lugar de un solo valor escalar
+    use_energy = args.use_energy # Si queremos incluir la energía como parte de la entrada/salida (requiere modificar el modelo y los datos)
+    for epoch in range(args.epochs):
+        model.train()
         total_loss = 0.0
-        for mv_v_part, mv_s_part, scalars, batch_idx in dataloader:
-            mv_v_part = mv_v_part.to(device)
-            mv_s_part = mv_s_part.to(device)
-            scalars = scalars.to(device)
-            batch_idx = batch_idx.to(device)
+        for batch in train_loader:
+            data = build_batch(batch, use_scalar=use_scalar, use_one_hot=use_one_hot, use_energy=use_energy, z_norm=args.z_norm)
+            mv_v_part = data["mv_v_part"].to(device)
+            mv_s_part = data["mv_s_part"].to(device)
+            scalars = data["scalars"].to(device)
+            batch_idx = data["batch_idx"].to(device)
 
             outputs = model(mv_v_part, mv_s_part, scalars, batch_idx)
-            loss = reconstruction_loss(outputs, mv_v_part, mv_s_part, scalars)
+            loss = reconstruction_loss(outputs, mv_v_part,
+                                       mv_s_part, scalars,
+                                       use_scalar=use_scalar,
+                                       use_one_hot=use_one_hot,
+                                       use_energy=use_energy)
 
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -130,8 +197,91 @@ def main():
 
             total_loss += loss.item()
 
-        avg_loss = total_loss / max(1, len(dataloader))
-        print(f"Epoch {epoch+1}: loss={avg_loss:.6f}")
+        avg_loss = total_loss / max(1, len(train_loader))
+
+        model.eval()
+        val_loss = 0.0
+        first_val_batch = None
+        first_val_outputs = None
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(val_loader):
+                data = build_batch(batch, use_scalar=use_scalar, use_one_hot=use_one_hot, use_energy=use_energy, z_norm=args.z_norm)
+                mv_v_part = data["mv_v_part"].to(device)
+                mv_s_part = data["mv_s_part"].to(device)
+                scalars = data["scalars"].to(device)
+                batch_idx = data["batch_idx"].to(device)
+
+                outputs = model(mv_v_part, mv_s_part, scalars, batch_idx)
+                loss = reconstruction_loss(outputs,
+                                           mv_v_part,
+                                           mv_s_part,
+                                           scalars,
+                                           use_scalar=use_scalar,
+                                           use_one_hot=use_one_hot,
+                                           use_energy=use_energy)
+
+                val_loss += loss.item()
+
+                if first_val_batch is None:
+                    first_val_batch = {
+                        "mv_v_part": mv_v_part.detach().cpu(),
+                        "mv_s_part": mv_s_part.detach().cpu(),
+                        "scalars": scalars.detach().cpu(),
+                        "batch_idx": batch_idx.detach().cpu(),
+                    }
+                    first_val_outputs = {
+                        "point_rec": outputs["point_rec"].detach().cpu(),
+                        "scalar_rec": outputs["scalar_rec"].detach().cpu(),
+                        "s_rec": outputs["s_rec"].detach().cpu(),
+                    }
+
+        avg_val_loss = val_loss / max(1, len(val_loader))
+        print(
+            f"Epoch {epoch+1}: train_loss={avg_loss:.6f} val_loss={avg_val_loss:.6f}"
+        )
+
+        if wandb is not None:
+            wandb.log({"loss/train": avg_loss, "loss/val": avg_val_loss}, step=epoch)
+
+            if first_val_batch is not None and first_val_outputs is not None:
+                mv_v_part = first_val_batch["mv_v_part"]
+                mv_s_part = first_val_batch["mv_s_part"]
+                scalars = first_val_batch["scalars"]
+                batch_idx = first_val_batch["batch_idx"]
+
+                point_rec = first_val_outputs["point_rec"]
+                scalar_rec = first_val_outputs["scalar_rec"]
+                s_rec = first_val_outputs["s_rec"]
+                # Calculamos el error como reco-true/true
+                r_err_x = ((point_rec[:, 0]- mv_v_part[:,0])/mv_v_part[:,0].abs().clamp(min=1e-6)).numpy()
+                r_err_y = ((point_rec[:, 1]- mv_v_part[:,1])/mv_v_part[:,1].abs().clamp(min=1e-6)).numpy()
+                r_err_z = ((point_rec[:, 2]- mv_v_part[:,2])/mv_v_part[:,2].abs().clamp(min=1e-6)).numpy()
+                r_err_depth = ((scalar_rec[:, 0]- mv_s_part[:,0])/mv_s_part[:,0].abs().clamp(min=1e-6)).numpy()
+                r_err_thr = ((s_rec - scalars)/scalars.abs().clamp(min=1e-6)).numpy().reshape(-1)
+                wandb_log_dict = {
+                    "loss/train": avg_loss,
+                    "loss/val": avg_val_loss,
+                    "relative_err/x": wandb.Histogram(r_err_x),
+                    "relative_err/y": wandb.Histogram(r_err_y),
+                    "relative_err/z": wandb.Histogram(r_err_z),
+                    "relative_err/depth": wandb.Histogram(r_err_depth),
+                    "relative_err/thr": wandb.Histogram(r_err_thr),
+                }
+                if not use_scalar:
+                    del wandb_log_dict["relative_err/depth"]
+                wandb.log(wandb_log_dict, step=epoch)
+
+                if plt is not None:
+                    event_ids = batch_idx.unique().tolist()
+                    if event_ids:
+                        ev = random.choice(event_ids)
+                        mask = batch_idx == ev
+                        fig = _plot_event_projections(
+                            mv_v_part[mask].numpy(), point_rec[mask].numpy()
+                        )
+                        if fig is not None:
+                            wandb.log({"reco/projections": wandb.Image(fig)}, step=epoch)
+                            plt.close(fig)
 
 
 if __name__ == "__main__":

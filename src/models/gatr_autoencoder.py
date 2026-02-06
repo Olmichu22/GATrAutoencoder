@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch_scatter import scatter_mean
+from torch_scatter import scatter_mean, scatter_max
 from .gatr_module import GATrBasicModule
 
 
@@ -19,7 +19,7 @@ class GATrAutoencoder(nn.Module):
         self,
         cfg_enc,
         cfg_dec,
-        cfg_agg=None,
+        cfg_agg={"type": "mean"}, # or "max" or None
         latent_s_channels=16,
     ):
         super().__init__()
@@ -74,19 +74,36 @@ class GATrAutoencoder(nn.Module):
             mv_v_part, mv_s_part, scalars, batch
         ) # encode the data
         
-        
+        # ----------------------------------------------
+        #------------- LATENT MANIPULATION -------------
+        # ----------------------------------------------
+        # concatenate latent mv and scalar representations and compress to a smaller latent space
         latent_concat = torch.cat([mv_latent.squeeze(1), s_latent], dim=-1) # (N, 16 + F_s)
         latent_compressed = self.compressor(latent_concat) # (N, latent_s_channels)
-        # Compresse to very small latent space
-        
+
+        #----------------------------------------------
+        #------------- AGGREGATION STEP ---------------
+        #----------------------------------------------
+        if self.cfg_agg.get("type", "mean") == "mean":
+            mv_latent_agg = scatter_mean(mv_latent.squeeze(1), batch, dim=0) # (B, 16)
+            s_latent_agg = scatter_mean(s_latent, batch, dim=0) # (B, F_s)
+        elif self.cfg_agg.get("type") == "max":
+            mv_latent_agg = scatter_max(mv_latent.squeeze(1), batch, dim=0) # (B, 16)
+            s_latent_agg = scatter_max(s_latent, batch, dim=0) # (B, F_s)
+          
         # aggregate event information by taking mean of latent representations for each event
-        mv_latent_agg = scatter_mean(mv_latent.squeeze(1), batch, dim=0) # (B, 16)
-        s_latent_agg = scatter_mean(s_latent, batch, dim=0) # (B, F_s)
+        aggregate_latent = torch.cat([mv_latent_agg, s_latent_agg], dim=-1) # (B, 16 + F_s)
+        # OPCIONAL
+        # SE PODRÍA PONER OTRA CAPA LINEAL PARA PROYECTAR A OTRO ESPACIO
+        
         
         # expand mv_latent_agg and s_latent_agg to (N, 16) and (N, F_s) respectively for concatenation
         mv_latent_agg_expanded = mv_latent_agg[batch] # (N, 16)
         s_latent_agg_expanded = s_latent_agg[batch] # (N, F_s)
         
+        #----------------------------------------------
+        #------------- DECODER INPUT PREPARATION ------
+        #----------------------------------------------
         # create full latent rpr by concatenating compressed latent, aggregated scalar latent, and aggregated mv latent
         latent_full_repr = torch.cat([latent_compressed, s_latent_agg_expanded, mv_latent_agg_expanded], dim=-1) # (B, latent_s_channels + F_s + 16)
         
@@ -102,10 +119,11 @@ class GATrAutoencoder(nn.Module):
         )
 
         return {
-            "mv_latent": mv_latent,
-            "s_latent": s_latent,
-            "point_latent": point_latent,
-            "scalar_latent": scalar_latent,
+            "mv_latent": mv_latent, # (N, 1, 16)
+            "s_latent": s_latent, # (N, 1, F_s)
+            "point_latent": point_latent, # (N, 3)
+            "scalar_latent": scalar_latent, # (N, 1)
+            "aggregate_latent": aggregate_latent, # (B, 16 + F_s)
             "mv_rec": mv_rec,
             "s_rec": s_rec, # the rest of the variables of the hit
             "point_rec": point_rec, # coordinate of the detector
