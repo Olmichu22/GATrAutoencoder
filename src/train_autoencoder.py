@@ -71,7 +71,15 @@ def build_batch(batch, use_scalar=False, use_energy=False, use_one_hot=False, z_
         }
 
 
-def reconstruction_loss(outputs, mv_v_part, mv_s_part, scalars, use_scalar=False):
+def reconstruction_loss(
+    outputs,
+    mv_v_part,
+    mv_s_part,
+    scalars,
+    use_scalar=False,
+    use_one_hot=False,
+    use_energy=False,
+):
         point_rec = outputs["point_rec"]
         scalar_rec = outputs["scalar_rec"]
         s_rec = outputs["s_rec"]
@@ -85,6 +93,9 @@ def reconstruction_loss(outputs, mv_v_part, mv_s_part, scalars, use_scalar=False
         scalar_loss = nn.functional.mse_loss(s_rec, scalars)
 
         return loss_xyz + loss_depth + scalar_loss
+
+def kl_loss(mu, logvar):
+        return 0.5 * torch.mean(torch.exp(logvar) + mu ** 2 - 1.0 - logvar)
 
 
 def _plot_event_projections(xyz, xyz_rec):
@@ -119,6 +130,8 @@ def parse_args():
     parser.add_argument("--use_one_hot", action="store_true", help="Si se usa one-hot encoding para las clases de thr en lugar de un solo valor escalar")
     parser.add_argument("--use_energy", action="store_true", help="Si se incluye la energía como parte de la entrada/salida (requiere modificar el modelo y los datos)")
     parser.add_argument("--z_norm", action="store_true", help="Si se aplica normalización z-score a las coordenadas espaciales y otras características usando estadísticas precomputadas")
+    parser.add_argument("--use_vae", action="store_true", help="Activa VAE sobre el agregado")
+    parser.add_argument("--vae_beta", type=float, default=1e-3, help="Peso del término KL")
     parser.add_argument("--epochs", type=int, default=100, help="Número de épocas de entrenamiento")
     parser.add_argument("--batch_size", type=int, default=3, help="Tamaño de batch para entrenamiento y validación")
     parser.add_argument("--cfg", "-c", type=str, default="model_cfg.yml", help="Archivo YAML con la configuración del modelo")
@@ -150,7 +163,15 @@ def main():
         print(f"Warning: Adjusting decoder out_s_channels from {cfg_dec['out_s_channels']} to match encoder in_s_channels {cfg_enc['in_s_channels']} for reconstruction.")
         cfg_dec["out_s_channels"] = cfg_enc["in_s_channels"]
 
-    model = GATrAutoencoder(cfg_enc=cfg_enc, cfg_agg=cfg_agg, cfg_dec=cfg_dec, latent_s_channels=2)
+    use_vae = args.use_vae
+    vae_beta = args.vae_beta
+    model = GATrAutoencoder(
+        cfg_enc=cfg_enc,
+        cfg_agg=cfg_agg,
+        cfg_dec=cfg_dec,
+        latent_s_channels=2,
+        use_vae=use_vae,
+    )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
@@ -165,6 +186,8 @@ def main():
                 "batch_size": args.batch_size,
                 "val_ratio": val_ratio,
                 "mode": mode,
+                "use_vae": use_vae,
+                "vae_beta": vae_beta,
             },
         )
         wandb.watch(model, log="all", log_freq=100)
@@ -185,11 +208,19 @@ def main():
             batch_idx = data["batch_idx"].to(device)
 
             outputs = model(mv_v_part, mv_s_part, scalars, batch_idx)
-            loss = reconstruction_loss(outputs, mv_v_part,
-                                       mv_s_part, scalars,
-                                       use_scalar=use_scalar,
-                                       use_one_hot=use_one_hot,
-                                       use_energy=use_energy)
+            loss = reconstruction_loss(
+                outputs,
+                mv_v_part,
+                mv_s_part,
+                scalars,
+                use_scalar=use_scalar,
+                use_one_hot=use_one_hot,
+                use_energy=use_energy,
+            )
+            if use_vae:
+                loss = loss + vae_beta * kl_loss(
+                    outputs["aggregate_mu"], outputs["aggregate_logvar"]
+                )
 
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -212,13 +243,19 @@ def main():
                 batch_idx = data["batch_idx"].to(device)
 
                 outputs = model(mv_v_part, mv_s_part, scalars, batch_idx)
-                loss = reconstruction_loss(outputs,
-                                           mv_v_part,
-                                           mv_s_part,
-                                           scalars,
-                                           use_scalar=use_scalar,
-                                           use_one_hot=use_one_hot,
-                                           use_energy=use_energy)
+                loss = reconstruction_loss(
+                    outputs,
+                    mv_v_part,
+                    mv_s_part,
+                    scalars,
+                    use_scalar=use_scalar,
+                    use_one_hot=use_one_hot,
+                    use_energy=use_energy,
+                )
+                if use_vae:
+                    loss = loss + vae_beta * kl_loss(
+                        outputs["aggregate_mu"], outputs["aggregate_logvar"]
+                    )
 
                 val_loss += loss.item()
 

@@ -21,8 +21,12 @@ class GATrAutoencoder(nn.Module):
         cfg_dec,
         cfg_agg={"type": "mean"}, # or "max" or None
         latent_s_channels=16,
+        use_vae=False,
     ):
         super().__init__()
+
+        self.cfg_agg = cfg_agg
+        self.use_vae = use_vae
 
         # Encoder: maps inputs -> latent scalars (and latent mv if needed)
         self.encoder = GATrBasicModule(
@@ -37,8 +41,15 @@ class GATrAutoencoder(nn.Module):
         )
       
         self.compressor = nn.Linear(cfg_enc["out_s_channels"] + cfg_enc["out_mv_channels"], latent_s_channels) # Compress concatenated latent mv and scalar to a smaller latent space
-        self.coord_projector = nn.Linear(latent_s_channels + cfg_enc["out_s_channels"] + 16, 4) # Project latent mv to the same dimension as latent scalars for aggregation
-        self.scalar_projector = nn.Linear(latent_s_channels + cfg_enc["out_s_channels"] + 16, cfg_dec["in_s_channels"]) # Project latent scalars to the same dimension as input scalars for decoding
+
+        agg_dim = cfg_enc["out_s_channels"] + 16
+        proj_in_dim = latent_s_channels + agg_dim + agg_dim
+        self.coord_projector = nn.Linear(proj_in_dim, 4) # Project latent mv to the same dimension as latent scalars for aggregation
+        self.scalar_projector = nn.Linear(proj_in_dim, cfg_dec["in_s_channels"]) # Project latent scalars to the same dimension as input scalars for decoding
+
+        # VAE heads over aggregated latent
+        self.vae_mu = nn.Linear(agg_dim, agg_dim)
+        self.vae_logvar = nn.Linear(agg_dim, agg_dim)
         # Decoder: maps latent scalars (+ optional mv) -> reconstructed scalars
         self.decoder = GATrBasicModule(
             hidden_mv_channels=cfg_dec["hidden_mv_channels"],
@@ -69,6 +80,13 @@ class GATrAutoencoder(nn.Module):
         )
         return mv_rec, s_rec, point_rec, scalar_rec
 
+    def _reparameterize(self, mu, logvar):
+        if self.training:
+            std = torch.exp(0.5 * logvar)
+            eps = torch.randn_like(std)
+            return mu + eps * std
+        return mu
+
     def forward(self, mv_v_part, mv_s_part, scalars, batch):
         mv_latent, s_latent, point_latent, scalar_latent = self.encode(
             mv_v_part, mv_s_part, scalars, batch
@@ -93,6 +111,15 @@ class GATrAutoencoder(nn.Module):
           
         # aggregate event information by taking mean of latent representations for each event
         aggregate_latent = torch.cat([mv_latent_agg, s_latent_agg], dim=-1) # (B, 16 + F_s)
+
+        agg_mu = self.vae_mu(aggregate_latent)
+        agg_logvar = self.vae_logvar(aggregate_latent)
+        if self.use_vae:
+            agg_z = self._reparameterize(agg_mu, agg_logvar)
+            agg_used = agg_z
+        else:
+            agg_z = aggregate_latent
+            agg_used = aggregate_latent
         # OPCIONAL
         # SE PODRÍA PONER OTRA CAPA LINEAL PARA PROYECTAR A OTRO ESPACIO
         
@@ -100,18 +127,22 @@ class GATrAutoencoder(nn.Module):
         # expand mv_latent_agg and s_latent_agg to (N, 16) and (N, F_s) respectively for concatenation
         mv_latent_agg_expanded = mv_latent_agg[batch] # (N, 16)
         s_latent_agg_expanded = s_latent_agg[batch] # (N, F_s)
+        agg_used_expanded = agg_used[batch]
         
         #----------------------------------------------
         #------------- DECODER INPUT PREPARATION ------
         #----------------------------------------------
         # create full latent rpr by concatenating compressed latent, aggregated scalar latent, and aggregated mv latent
-        latent_full_repr = torch.cat([latent_compressed, s_latent_agg_expanded, mv_latent_agg_expanded], dim=-1) # (B, latent_s_channels + F_s + 16)
+        latent_full_repr = torch.cat(
+            [latent_compressed, s_latent_agg_expanded, mv_latent_agg_expanded, agg_used_expanded],
+            dim=-1,
+        )
         
         # project to 3D coordinates for decoding  
-        mv_latent_agg_projected = self.coord_projector(latent_full_repr, dim=-1)
+        mv_latent_agg_projected = self.coord_projector(latent_full_repr)
         
         # project to s_in dimension for decoding  
-        s_latent_agg_projected = self.scalar_projector(latent_full_repr, dim=-1)
+        s_latent_agg_projected = self.scalar_projector(latent_full_repr)
         
         
         mv_rec, s_rec, point_rec, scalar_rec = self.decode(
@@ -124,6 +155,9 @@ class GATrAutoencoder(nn.Module):
             "point_latent": point_latent, # (N, 3)
             "scalar_latent": scalar_latent, # (N, 1)
             "aggregate_latent": aggregate_latent, # (B, 16 + F_s)
+            "aggregate_mu": agg_mu,
+            "aggregate_logvar": agg_logvar,
+            "aggregate_z": agg_z,
             "mv_rec": mv_rec,
             "s_rec": s_rec, # the rest of the variables of the hit
             "point_rec": point_rec, # coordinate of the detector
