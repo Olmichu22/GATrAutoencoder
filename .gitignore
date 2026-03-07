@@ -12,3 +12,8 @@ condorSubmit
 *hdf5
 *.h5
 *.log
+*.parquet
+*.csv
+wandb/
+*png
+*.ckpt

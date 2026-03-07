@@ -4,9 +4,11 @@ from typing import List, Optional, Sequence, Tuple
 import os
 import h5py
 
+from torch_geometric.loader import DataLoader
 import numpy as np
 import torch
 from torch_geometric.data import Data, Dataset
+import lightning as L
 
 
 # ============================================================
@@ -18,6 +20,67 @@ STRING_TO_INT_MAPPINGS = {
     "particle_type": {"electron": 0, "pion": 1, "muon": 2, "unknown": -1},
 }
 
+
+class SDHCALRegressorDataModule(L.LightningDataModule):
+    def __init__(
+        self,
+        data_paths,
+        val_ratio,
+        mode,
+        preprocessing_cfg,
+        filters_cfg,
+        batch_size,
+        train_num_workers,
+        val_num_workers,
+        seed=42,
+    ):
+        super().__init__()
+        self.data_paths = data_paths
+        self.val_ratio = val_ratio
+        self.mode = mode
+        self.preprocessing_cfg = preprocessing_cfg
+        self.filters_cfg = filters_cfg
+        self.batch_size = batch_size
+        self.train_num_workers = train_num_workers
+        self.val_num_workers = val_num_workers
+        self.seed = seed
+        self.train_dataset = None
+        self.val_dataset = None
+        self.class_weights = None
+
+    def setup(self, stage=None):
+        if self.train_dataset is not None and self.val_dataset is not None:
+            return
+        self.train_dataset, self.val_dataset = make_pf_splits(
+            self.data_paths,
+            val_ratio=self.val_ratio,
+            mode=self.mode,
+            seed=self.seed,
+            preprocessing_cfg=self.preprocessing_cfg,
+            filters=self.filters_cfg,
+        )
+        base_dataset = self.train_dataset.dataset if hasattr(self.train_dataset, "dataset") else self.train_dataset
+        self.class_weights = getattr(base_dataset, "weights", None)
+
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=self.train_num_workers,
+            persistent_workers=self.train_num_workers > 0,
+            pin_memory=torch.cuda.is_available(),
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.val_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.val_num_workers,
+            persistent_workers=self.val_num_workers > 0,
+            pin_memory=torch.cuda.is_available(),
+        )
 
 def _parse_filter_operator(value: str) -> tuple[str, float]:
     if value.startswith((">=", "<=")):
@@ -126,6 +189,20 @@ class FlatSDHCALDataset(Dataset):
             import yaml
             with open(self._preprocessing_cfg["z_norm_yaml_path"], "r") as f:
                 self._stats = yaml.safe_load(f)
+                if "stats" in self._stats.keys():
+                    self.n_events_per_energy = self._stats["events"]["counts_by_energy"]
+                    self._stats = self._stats["stats"]
+                else:
+                    self.n_events_per_energy = None
+        else:
+            self.n_events_per_energy = None
+        
+        if self.n_events_per_energy is not None:
+            # Gen weights dicht
+            total = sum(self.n_events_per_energy.values())
+            self.weights = {k: total/v for k, v in self.n_events_per_energy.items()}
+        else:
+            self.weights = None
 
         # =========================
         # Cargar en RAM SOLO si NPZ
@@ -448,7 +525,7 @@ def make_pf_splits(
             dataset = HitsDataset(paths, mode=mode)
     else:
         dataset = HitsDataset(paths, mode=mode)
-
+    
     N = dataset.len()
     rng = np.random.default_rng(seed)
     indices = rng.permutation(N)

@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torch_geometric.loader import DataLoader
 
-from datasets import make_pf_splits
+from src.utils.datasets import make_pf_splits
 from models.gatr_autoencoder import GATrAutoencoder
 
 try:
