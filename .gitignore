@@ -1,8 +1,6 @@
 wandb/
-*.log
+__pycache__/
 *.pyc
+*.log
 *.npz
 *.tar.gz
-__pycache__/
-.ipynb_checkpoints/
-data/
